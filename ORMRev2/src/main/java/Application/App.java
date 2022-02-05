@@ -10,7 +10,9 @@ import java.beans.IntrospectionException;
 import java.beans.Introspector;
 import java.beans.PropertyDescriptor;
 import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -22,67 +24,157 @@ public class App {
 
         Book bk = new Book("Hippos", "Lots of hippo", 9999.99);
 
+        bk.setId(9);
+        Connection conn = null;
+
+        processGetbyID(bk, conn);
+        processPut(bk, conn);
+        processGetAll(bk, conn);
+
+    }
+
+    public static String processGetbyID (Object object, Connection credential) throws Exception {
+
         TableMeta TBI = new TableMeta();
-        TBI.setTableName(bk.getClass().getAnnotation(Table.class).name());
+        TBI.setTableName(object.getClass().getAnnotation(Table.class).name());
         TBI.setBaseRows(new HashMap<>());
         TBI.setIdRow(new HashMap<>());
 
-        List<FieldType> FTL = null;
+        List<FieldType> FTL = new ArrayList<>();
 
         try {
-            List<FieldType> derpo = new ArrayList<>();
-            for(PropertyDescriptor propertyDescriptor : Introspector.getBeanInfo(bk.getClass()).getPropertyDescriptors()){
+
+            for(PropertyDescriptor propertyDescriptor : Introspector.getBeanInfo(object.getClass()).getPropertyDescriptors()){
                 System.out.println(propertyDescriptor);
                 if (propertyDescriptor.getReadMethod() != null && propertyDescriptor.getWriteMethod() != null) {
-                    Field field = bk.getClass().getDeclaredField(propertyDescriptor.getName());
+                    Field field = object.getClass().getDeclaredField(propertyDescriptor.getName());
+
                     System.out.println(field);
-                    derpo.add(
-                            new FieldType(
-                                    field,
-                                    propertyDescriptor.getReadMethod(),
-                                    propertyDescriptor.getWriteMethod())
+                    FieldType FT = new FieldType(
+                            field,
+                            propertyDescriptor.getReadMethod(),
+                            propertyDescriptor.getWriteMethod()
                     );
+
+                    Column column = FT.getField().getAnnotation(Column.class);
+                    if(column != null)
+                    {
+                        if(!column.primaryKey())
+                            TBI.getBaseRows().put(column.name(), FT);
+                        else
+                            TBI.getIdRow().put(column.name(), FT);
+                    }
+
+                    //String str = propertyDescriptor.getValue(propertyDescriptor.getName()).toString();
+
+
                 }
             }
-            FTL = derpo;
+
         } catch (NoSuchFieldException | IntrospectionException e) {
             throw new Exception(e);
         }
 
-        for(FieldType field : FTL){
-            Column column = field.getField().getAnnotation(Column.class);
-            if(column != null)
-            {
-                if(!column.primaryKey())
-                    TBI.getBaseRows().put(column.name(), field);
-                else
-                    TBI.getIdRow().put(column.name(), field);
-            }
+
+
+        StringBuilder sqlWhereID = new StringBuilder(); //represents the entire list of object field values as a string. Not needed for Put Request?
+
+        for(Map.Entry<String , FieldType> entry : TBI.getIdRow().entrySet()){
+            sqlWhereID.append(entry.getKey()).append(" = '");
+            sqlWhereID.append(entry.getValue().getGetter().invoke(object)).append("'");
         }
 
-        List<Object> values = new ArrayList<>();
-        StringBuilder sqlRows = new StringBuilder();
-        for(Map.Entry<String , FieldType> entry : TBI.getBaseRows().entrySet()){
-            sqlRows.append(entry.getKey()).append(", ");
-            values.add(entry.getValue().getGetter().invoke(bk));
-        }
+        String sql = "SELECT * FROM " + TBI.getTableName() + " WHERE "  +  sqlWhereID + ";";
+        System.out.println("\n" +  sql + "\n");
 
-        StringBuilder sqlQuestionValues = new StringBuilder();
-        for (int i = 0; i < TBI.getBaseRows().size() -1; i++) {
-            sqlQuestionValues.append("?, ");
-        }
-        sqlQuestionValues.append("?");
-
-        String sql;
-        if (sqlRows.length() > 3) {
-            sql = "INSERT INTO " + TBI.getTableName() + " (" + sqlRows.substring(0, sqlRows.length() - 2) + ") " +
-                    " VALUES (" + sqlQuestionValues + ");";
-            System.out.println("\n" +  sql + "\n");
-        } else {
-            System.out.println("Could not create sql INSERT query");
-        }
-
+        return sql;
 
     }
+
+    public static String processGetAll (Object object, Connection credential) throws Exception {
+
+        TableMeta TBI = new TableMeta();
+        TBI.setTableName(object.getClass().getAnnotation(Table.class).name());
+
+
+        return "Select * FROM " + TBI.getTableName();
+
+    }
+
+    public static String processPut (Object object, Connection credential) throws Exception {
+
+        TableMeta TBI = new TableMeta();
+        TBI.setTableName(object.getClass().getAnnotation(Table.class).name());
+        TBI.setBaseRows(new HashMap<>());
+        TBI.setIdRow(new HashMap<>());
+
+        //List<FieldType> FTL = new ArrayList<>();
+
+        try {
+
+            for(PropertyDescriptor propertyDescriptor : Introspector.getBeanInfo(object.getClass()).getPropertyDescriptors()){
+                System.out.println(propertyDescriptor);
+                if (propertyDescriptor.getReadMethod() != null && propertyDescriptor.getWriteMethod() != null) {
+                    Field field = object.getClass().getDeclaredField(propertyDescriptor.getName());
+
+                    System.out.println(field);
+                    FieldType FT = new FieldType(
+                        field,
+                        propertyDescriptor.getReadMethod(),
+                        propertyDescriptor.getWriteMethod()
+                    );
+
+                    Column column = FT.getField().getAnnotation(Column.class);
+                    if(column != null)
+                    {
+                        if(!column.primaryKey())
+                            TBI.getBaseRows().put(column.name(), FT);
+                        else
+                            TBI.getIdRow().put(column.name(), FT);
+                    }
+
+                    //String str = propertyDescriptor.getValue(propertyDescriptor.getName()).toString();
+
+
+                }
+            }
+
+        } catch (NoSuchFieldException | IntrospectionException e) {
+            throw new Exception(e);
+        }
+
+
+
+        StringBuilder sqlWhereID = new StringBuilder(); //represents the entire list of object field values as a string. Not needed for Put Request?
+        StringBuilder sqlRows = new StringBuilder(); //represents the entire list of object fields string.
+        // Length() -2 substring is applied in sql string creation to account for the appended delimiter string of: (", ")
+        for(Map.Entry<String , FieldType> entry : TBI.getBaseRows().entrySet()){
+            sqlRows.append(entry.getKey()).append(" = '");
+            sqlRows.append(entry.getValue().getGetter().invoke(object)).append("', ");
+        }
+        for(Map.Entry<String , FieldType> entry : TBI.getIdRow().entrySet()){
+            sqlWhereID.append(entry.getKey()).append(" = '");
+            sqlWhereID.append(entry.getValue().getGetter().invoke(object)).append("'");
+        }
+
+        String sql = "";
+        if (sqlRows.length() > 4) { //length() less than 4 means rows is empty since it is automatically appended with a 2 length string of: (", ")
+            sql = "UPDATE " + TBI.getTableName() + " SET " + sqlRows.substring(0, sqlRows.length() - 3) +
+                    "' WHERE " +  sqlWhereID + ";";
+            System.out.println("\n" +  sql + "\n");
+        } else {
+            System.out.println("Could not create sql UPDATE query");
+        }
+
+//        PreparedStatement ps  = credential.prepareStatement(sql);
+//        ResultSet rs = ps.executeQuery();
+//        if(rs.next()) {
+//            return "";
+//        }
+
+        return sql;
+    }
+
+
 
 }
