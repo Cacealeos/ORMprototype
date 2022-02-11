@@ -1,6 +1,6 @@
 Contributors:
 Joshua Herrera
-
+Tanner Nielsen
 
 Java-Based ORM for a postgres Connection via JDBC
 
